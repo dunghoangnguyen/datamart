@@ -6,7 +6,7 @@ import calendar
 # Get the last month-end from current system date
 #last_mthend = datetime.strftime(datetime.now().replace(day=1) - timedelta(days=1), '%Y-%m-%d')
 
-x = 0 # Change to number of months ago (0: last month-end, 1: last last month-end, ...)
+x = 0  # Change to number of months ago (0: last month-end, 1: last last month-end, ...)
 today = datetime.now()
 first_day_of_current_month = today.replace(day=1)
 current_month = first_day_of_current_month
@@ -19,7 +19,11 @@ for i in range(x):
 last_day_of_x_months_ago = current_month - timedelta(days=1)
 last_mthend = last_day_of_x_months_ago.strftime('%Y-%m-%d')
 
-print("Selected last_mthend = ", last_mthend)
+# Add the variable for the first day of the month that contains last_mthend
+last_mthstart = last_day_of_x_months_ago.replace(day=1).strftime('%Y-%m-%d')
+
+print("Last month-end:", last_mthend)
+print("Last month-start:", last_mthstart)
 
 # COMMAND ----------
 
@@ -31,6 +35,9 @@ from pyspark.sql.functions import trunc, date_add, current_date, date_format, co
 from pyspark.sql.window import Window
 from pyspark.sql.types import StructType, StructField, StringType, DateType
 import pandas as pd
+
+#spark = SparkSession.builder.appName("example").getOrCreate()
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
 tclient_policy_links_path = 'abfss://prod@abcmfcadovnedl01psea.dfs.core.windows.net/Published/VN/Master/VN_PUBLISHED_CASM_CAS_SNAPSHOT_DB/TCLIENT_POLICY_LINKS/'
 tclient_addresses_path = 'abfss://prod@abcmfcadovnedl01psea.dfs.core.windows.net/Published/VN/Master/VN_PUBLISHED_CASM_CAS_SNAPSHOT_DB/TCLIENT_ADDRESSES/'
@@ -88,7 +95,7 @@ tcas_cws_user_mappings = spark.read .format("parquet").load(tcas_cws_user_mappin
 
 # Prepare tables needed for cws_information_mthend
 account = spark.read.format("parquet").load(account_path)
-cws_hit_data = spark.read.format("parquet").load(cws_hit_data_path).select("post_evar37", "post_visid_high", "post_visid_low", "visit_num", "date_time", "exclude_hit", "hit_source", "post_evar19", "user_server")
+cws_hit_data = spark.read.format("parquet").load(cws_hit_data_path).select("post_evar37", "post_visid_high", "post_visid_low", "visit_num", "date_time", "exclude_hit", "hit_source", "post_evar19", "user_server", "post_pagename")
 
 # Prepare tables needed for move_information_mthend
 movekey_flat = spark.read.format("parquet").load(movekey_flat_path)
@@ -155,7 +162,7 @@ cws_hit_data_df = cws_hit_data_df.filter(
     (~cws_hit_data_df.hit_source.isin(['5', '7', '8', '9'])) &
     (concat(cws_hit_data_df.post_visid_high, cws_hit_data_df.post_visid_low).isNotNull()) &
     (cws_hit_data_df.post_evar37 != '') &
-    (cws_hit_data_df.post_evar19 == '/portfolio/policies') &
+    ((cws_hit_data_df.post_evar19 == '/portfolio/policies') | (cws_hit_data_df.post_pagename == 'CWS:home')) &
     (cws_hit_data_df.user_server.isin(['hopdongcuatoi.manulife.com.vn','hopdong.manulife.com.vn']))
 )
 move_hit_data_df = move_hit_data_df.filter(
@@ -173,33 +180,6 @@ tclient_service_registrations_df = tclient_service_registrations_df.filter(col('
 toccupation_df = toccupation_df.filter(col('image_date') == last_mthend)
 #tsms_clients_df = tsms_clients_df.filter(col('image_date') == last_mthend)
 
-# Check number of records
-print(f"tprovinces: {tprovinces_df.count()}")
-print(f"twards: {twards_df.count()}")
-print(f"tclient_addresses: {tclient_addresses_df.count()}")
-print(f"tclient_policy_links: {tclient_policy_links_df.filter((col('rec_status') == 'A') & col('link_typ').isin(['O','I','T'])).count()}")
-print(f"tdistricts: {tdistricts_df.count()}")
-print(f"tpolicys: {tpolicys_df.count()}")
-print(f"tfield_values: {tfield_values_df.count()}")
-print(f"legacy_cws: {legacy_cws_df.count()}")
-print(f"user: {user_df.count()}")
-print(f"tcas_cws_user_mappings: {tcas_cws_user_mappings_df.count()}")
-print(f"tcas_cws_users: {tcas_cws_users_df.count()}")
-print(f"account: {account_df.count()}")
-print(f"cws_hit_data: {cws_hit_data_df.count()}")
-print(f"movekey_flat: {movekey_flat_df.count()}")
-print(f"manulifemember_flat: {manulifemember_flat_df.count()}")
-print(f"muser_flat: {muser_flat_df.count()}")
-print(f"userstate_flat: {userstate_flat_df.count()}")
-print(f"move_hit_data: {move_hit_data_df.count()}")
-print(f"tji_config: {tji_config_df.count()}")
-print(f"tji_app_info: {tji_app_info_df.count()}")
-print(f"tji_zap_qtn: {tji_zap_qtn_df.count()}")
-print(f"tclient_other_details: {tclient_other_details_df.count()}")
-print(f"tclient_details: {tclient_details_df.count()}")
-print(f"tclient_service_registrations: {tclient_service_registrations_df.count()}")
-print(f"toccupation: {toccupation_df.count()}")
-print(f"tsms_clients: {tsms_clients_df.count()}")
 
 # COMMAND ----------
 
@@ -254,9 +234,9 @@ tmp_cus_add_ful_mthend = tclient_policy_links_df.filter((tclient_policy_links_df
         'ward'
     )
 
-print("Number of records of tmp_cus_add_ful_mthend: ", tmp_cus_add_ful_mthend.count())
-print("Number of columns of tmp_cus_add_ful_mthend: ", len(tmp_cus_add_ful_mthend.columns))
-tmp_cus_add_ful_mthend.display(10)
+#print("Number of records of tmp_cus_add_ful_mthend: ", tmp_cus_add_ful_mthend.count())
+#print("Number of columns of tmp_cus_add_ful_mthend: ", len(tmp_cus_add_ful_mthend.columns))
+#tmp_cus_add_ful_mthend.filter(col('cli_num')=='2801202406').display()
 
 # COMMAND ----------
 
@@ -340,9 +320,9 @@ tmp_lst_trmn_pol_mthend = (
     )
 )
 
-print("Number of records of tmp_lst_trmn_pol_mthend: ", tmp_lst_trmn_pol_mthend.count())
-print("Number of columns of tmp_lst_trmn_pol_mthend: ", len(tmp_lst_trmn_pol_mthend.columns))
-tmp_lst_trmn_pol_mthend.display(10)
+#print("Number of records of tmp_lst_trmn_pol_mthend: ", tmp_lst_trmn_pol_mthend.count())
+#print("Number of columns of tmp_lst_trmn_pol_mthend: ", len(tmp_lst_trmn_pol_mthend.columns))
+#tmp_lst_trmn_pol_mthend.display(10)
 
 # COMMAND ----------
 
@@ -391,9 +371,9 @@ tmp_lst_inf_pol_mthend = rs_a.alias("a").join(rs_b.alias("b"), on=["cli_num", "p
             col("status_tbl.fld_valu_desc_eng").alias("status"), 
             col("lst_chnl_desc_tbl.fld_valu_desc_eng").alias("lst_chnl_desc"))
     
-print("Number of records of tmp_lst_inf_pol_mthend: ", tmp_lst_inf_pol_mthend.count())
-print("Number of columns of tmp_lst_inf_pol_mthend: ", len(tmp_lst_inf_pol_mthend.columns))
-tmp_lst_inf_pol_mthend.display(10)
+#print("Number of records of tmp_lst_inf_pol_mthend: ", tmp_lst_inf_pol_mthend.count())
+#print("Number of columns of tmp_lst_inf_pol_mthend: ", len(tmp_lst_inf_pol_mthend.columns))
+#tmp_lst_inf_pol_mthend.display(10)
 
 # COMMAND ----------
 
@@ -422,9 +402,9 @@ tmp_frt_inf_pol_mthend = rs_a.alias("a").join(rs_b.alias("b"), on=["cli_num", "p
             col("status_tbl.fld_valu_desc_eng").alias("status"), 
             col("lst_chnl_desc_tbl.fld_valu_desc_eng").alias("lst_chnl_desc"))
     
-print("Number of records of tmp_frt_inf_pol_mthend: ", tmp_frt_inf_pol_mthend.count())
-print("Number of columns of tmp_frt_inf_pol_mthend: ", len(tmp_frt_inf_pol_mthend.columns))
-tmp_frt_inf_pol_mthend.display(10)
+#print("Number of records of tmp_frt_inf_pol_mthend: ", tmp_frt_inf_pol_mthend.count())
+#print("Number of columns of tmp_frt_inf_pol_mthend: ", len(tmp_frt_inf_pol_mthend.columns))
+#tmp_frt_inf_pol_mthend.display(10)
 
 # COMMAND ----------
 
@@ -443,9 +423,25 @@ cws_login = cws_login.groupBy(tcas_cws_user_mappings_df["cli_num"]).agg(max("eve
 # Merge to retrieve old CWS customers" info
 cws_legacy_information_mthend = cws_acc.join(cws_login, on="cli_num", how="left")
 
-print("Number of records of cws_legacy_information_mthend: ", cws_legacy_information_mthend.count())
-print("Number of columns of cws_legacy_information_mthend: ", len(cws_legacy_information_mthend.columns))
-cws_legacy_information_mthend.display(10)
+#print("Number of records of cws_legacy_information_mthend: ", cws_legacy_information_mthend.count())
+#print("Number of columns of cws_legacy_information_mthend: ", len(cws_legacy_information_mthend.columns))
+#cws_legacy_information_mthend.display(10)
+
+# COMMAND ----------
+
+# DBTITLE 1,Step 7b. Retrieve missing CWS logins from Apr'24 to Jul'24
+missing_login = spark.read.csv("/mnt/lab/vn/project/scratch/adhoc/CWS/CWSVN_Missing_LoginData.csv", inferSchema=True, header=True)
+missing_login = missing_login.withColumn("image_date", F.last_day(col("loginMonth")))
+missing_login.createOrReplaceTempView("missing_login")
+
+cws_missing = spark.sql(f"""
+select  INTEGRATION_KEY__C cli_num, max(loginTimestamp) missing_cws_login_dt
+from    missing_login mli inner join
+        vn_published_sfdc_easyclaims_db.Account acc on mli.mcfId = acc.MCF_User_Id__pc
+where   image_date <= '{last_mthend}'
+group by
+        INTEGRATION_KEY__C
+""")
 
 # COMMAND ----------
 
@@ -461,14 +457,14 @@ cws_login_transactions = cws_hit_data_df.select(
     cws_hit_data_df.date_time.alias('login_date_time'),
     row_number().over(Window.partitionBy(cws_hit_data_df.post_evar37).orderBy(cws_hit_data_df.date_time.asc())).alias('rw_num')
 )
-
 cws_reg = cws_login_transactions.select(
     cws_login_transactions.acc_id,
     cws_login_transactions.login_date_time.alias('reg_dt')
 ).where(cws_login_transactions.rw_num == 1)
 
-cws_login = cws_login_transactions.where(
+cws_login = cws_login_transactions.filter(
     (cws_login_transactions.rw_num > 1) &
+    #(cws_login_transactions.login_date_time >= last_mthstart) &
     (cws_login_transactions.login_date_time <= last_mthend)
 ).groupBy(cws_login_transactions.acc_id).agg(
     max(cws_login_transactions.login_date_time).alias('lst_login_dt')
@@ -486,11 +482,27 @@ cws_information_mthend = cws_acc.join(
     cws_acc.cli_num,
     cws_reg.reg_dt.alias('cws_joint_dt'),
     cws_login.lst_login_dt
+).join(
+    cws_missing, 
+    on='cli_num', how='left'
+).withColumn(
+    'lst_login_dt',
+    F.coalesce(col('missing_cws_login_dt'), col('lst_login_dt'))
 )
 
 #print("Number of records of cws_information_mthend: ", cws_information_mthend.count())
 #print("Number of columns of cws_information_mthend: ", len(cws_information_mthend.columns))
-cws_information_mthend.display(10)
+#cws_information_mthend.display()
+cws_login_transactions.createOrReplaceTempView('cws_login_transactions')
+cws_login.createOrReplaceTempView('cws_login')
+cws_information_mthend.createOrReplaceTempView('cws_information_mthend')
+#cws_information_mthend.agg(
+#        min(col("lst_login_dt")).alias("first_login_dt"),
+#        max(col("lst_login_dt")).alias("last_login_dt"),
+#         F.count(when(F.last_day(col("lst_login_dt")) == F.lit("2024-05-31"), col("cli_num"))).alias("no_customer_login_May"),
+#         F.count(when(F.last_day(col("lst_login_dt")) == F.lit("2024-06-30"), col("cli_num"))).alias("no_customer_login_Jun"),
+#        F.count(when(F.last_day(col("lst_login_dt")) == last_mthend, col("cli_num"))).alias("no_customer_login_Jul")) \
+#    .display()
 
 # COMMAND ----------
 
@@ -555,7 +567,7 @@ move_information_mthend = rs_dis.where(rs_dis.rw_num == 1)
 
 #print("Number of records of move_information_mthend: ", move_information_mthend.count())
 #print("Number of columns of move_information_mthend: ", len(move_information_mthend.columns))
-move_information_mthend.display(10)
+#move_information_mthend.display(10)
 
 # COMMAND ----------
 
@@ -654,9 +666,9 @@ rs_cust_sum = merged_tpolicys_df.groupBy("cli_num").agg(
     F.max("pol_eff_dt").alias("lst_eff_dt"),
     F.max("restrict_cd_3").alias("restrict_cd_3")
 )
-print("Number of records of rs_cust_sum: ", rs_cust_sum.count())
-print("Number of columns of rs_cust_sum: ", len(rs_cust_sum.columns))
-rs_cust_sum.display(0)
+#print("Number of records of rs_cust_sum: ", rs_cust_sum.count())
+#print("Number of columns of rs_cust_sum: ", len(rs_cust_sum.columns))
+#rs_cust_sum.display(0)
 
 # COMMAND ----------
 
@@ -752,12 +764,8 @@ tcustdm_mthend = tclient_details_df.alias("tcd") \
 
 #print("Number of records of tcustdm_mthend: ", tcustdm_mthend.count())
 #print("Number of columns of tcustdm_mthend: ", len(tcustdm_mthend.columns))
-tcustdm_mthend.display(100)
+#tcustdm_mthend.filter(col('cli_num')=='2801202406').display()
 
 # COMMAND ----------
 
-tcustdm_mthend.write.mode("overwrite").partitionBy("image_date").parquet("abfss://lab@abcmfcadovnedl01psea.dfs.core.windows.net/vn/project/cpm/datamarts/TCUSTDM_MTHEND")
-
-# COMMAND ----------
-
-
+tcustdm_mthend.write.mode("overwrite").partitionBy("image_date").parquet(f"/mnt/lab/vn/project/cpm/datamarts/TCUSTDM_MTHEND")
